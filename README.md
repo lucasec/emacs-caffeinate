@@ -6,6 +6,18 @@ Have you ever had your computer go to sleep in the middle of a compilation job, 
 
 With Emacs 31 or later, you can now save yourself the extra PID, as Emacs ships a new `system-sleep` package that provides native integration with most operating systems' power assertion APIs.
 
+## Installation
+
+The package can currently be installed using `package-vc` (I hope to publish it to a repository soon):
+
+```
+(use-package caffeinate
+  :vc (:url "https://github.com/lucasec/emacs-caffeinate.git"
+            :branch main
+            :rev newest)
+  :commands (caffeinate-mode display-caffeinate-mode))
+```
+
 ## Usage
 
 This package provides two global minor modes that can be toggled on any time it would be inopportune for your system to sleep:
