@@ -1,0 +1,3 @@
+*.elc
+caffeinate-pkg.el
+caffeinate-autoloads.el
