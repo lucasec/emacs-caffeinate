@@ -10,7 +10,7 @@ With Emacs 31 or later, you can now save yourself the extra PID, as Emacs ships 
 
 The package can currently be installed using `package-vc` (I hope to publish it to a repository soon):
 
-```
+```elisp
 (use-package caffeinate
   :vc (:url "https://github.com/lucasec/emacs-caffeinate.git"
             :branch main
