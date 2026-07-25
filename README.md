@@ -20,16 +20,14 @@ The package can currently be installed using `package-vc` (I hope to publish it 
 
 ## Usage
 
-This package provides two global minor modes that can be toggled on any time it would be inopportune for your system to sleep:
+This package provides a global minor modes that can be toggled on any time it would be inopportune for your system to sleep: `caffeinate-mode`.
 
-* `caffeinate-mode` blocks system idle sleep but allows the display to sleep.
-* `display-caffeinate-mode` blocks system idle sleep and also keeps the display active.
-
-The modes are mutually exclusive: enabling one automatically disables the other. Disabling either mode releases the active power assertion, allowing the system to resume its normal sleep behavior.
-
-While the modes are active, Caffeinate signals your operating system using its native power assertion APIs, using the facilities provided by the `system-sleep` package.
+When the mode is active, Emacs signals your operating system using its native power assertion APIs through the facilities provided by
+the `system-sleep` package.
 
 If you frequently forget to disable `caffeinate-mode`, you can set a timeout using `caffeinate-set-timeout` (or the options in the mode-line menu) to ensure your system will eventually sleep.
+
+By default, `caffeinate-mode` only prevents system idle sleep and does NOT prevent the display from sleeping.  Blocking display sleep can be enabled temporarily using `caffeinate-toggle-display` or by default through customizing the value of `caffeinate-block-display-sleep`.
 
 ## Future Improvements
 

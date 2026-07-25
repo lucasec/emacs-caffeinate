@@ -4,7 +4,7 @@
 
 ;; Author: Lucas Christian <lucas@lucasec.com>
 ;; Maintainer: Lucas Christian <lucas@lucasec.com>
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "31.0"))
 ;; Keywords: convenience, hardware
 
@@ -30,22 +30,15 @@
 ;; sleep APIs directly, this integration can be uncommon, particularly
 ;; among command-line software development workflows.
 ;;
-;; There are two variations of the global minor mode available:
+;; When the mode is active, Emacs signals your operating system using
+;; its native power assertion APIs through the facilities provided by
+;; the `system-sleep' package.
 ;;
-;;   * `caffeinate-mode' prevents system idle sleep but allows the
-;;      display to sleep.
-;;
-;;   * `display-caffeinate-mode' prevents system idle sleep and also
-;;      keeps the display active.
-;;
-;; The modes are mutually exclusive: enabling one automatically
-;; disables the other.  Disabling either mode releases the active
-;; power assertion, allowing the system to resume its normal sleep
-;; behavior.
-;;
-;; While the modes are active, Emacs signals your operating system
-;; using its native power assertion APIs through the facilities
-;; provided by the `system-sleep' package.
+;; By default, `caffeinate-mode' only prevents system idle sleep and
+;; does NOT prevent the display from sleeping.  Blocking display sleep
+;; can be enabled temporarily using `caffeinate-toggle-display' or by
+;; default through customizing the value of
+;; `caffeinate-block-display-sleep'.
 ;;
 ;; Requires Emacs 31 or later for the `system-sleep' package.
 
@@ -58,8 +51,13 @@
   :group 'system-interface
   :prefix "caffeinate-")
 
+(defvar caffeinate-mode nil)
+
 (defvar caffeinate--token nil
   "Active `system-sleep' token held by caffeinate.")
+
+(defvar caffeinate--block-display-sleep nil
+  "Active sleep blocking mode of the current assertion held by caffeinate.")
 
 (defvar caffeinate--timer nil
   "Active timeout timer object.")
@@ -67,16 +65,12 @@
 (defvar caffeinate--timeout-seconds nil
   "Last selected timeout duration in seconds, or nil for no timeout.")
 
-(defun caffeinate--acquire (allow-display-sleep)
-  "Acquire a power assertion, releasing any existing one first.
-
-If ALLOW-DISPLAY-SLEEP is nil, prevent the display from sleeping.  If
-non-nil, only prevent system idle sleep."
+(defun caffeinate--acquire ()
+  "Acquire a power assertion, releasing any existing one first."
   (caffeinate--release)
   (let ((token (system-sleep-block-sleep
-                (concat "Emacs - "
-                        (if allow-display-sleep "caffeinate-mode" "display-caffeinate-mode"))
-                allow-display-sleep)))
+                "Emacs - caffeinate-mode"
+                (not caffeinate--block-display-sleep))))
     (unless token
       (error "Caffeinate: unable to acquire power assertion"))
     (setq caffeinate--token token)))
@@ -98,9 +92,26 @@ non-nil, only prevent system idle sleep."
   "Disable caffeinate after timeout."
   (setq caffeinate--timer nil
         caffeinate--timeout-seconds nil)
-  (cond
-   ((bound-and-true-p caffeinate-mode) (caffeinate-mode -1))
-   ((bound-and-true-p display-caffeinate-mode) (display-caffeinate-mode -1))))
+  (caffeinate-mode -1))
+
+(defun caffeinate--set-block-display-sleep (symbol value)
+  "Custom setter for `caffeinate-block-display-sleep'.
+Sets the value of SYMBOL to VALUE and re-acquires the power assertion if
+`caffeinate-mode' is active."
+  (custom-set-default symbol value)
+  (when caffeinate-mode
+    (setq caffeinate--block-display-sleep value)
+    (caffeinate--acquire)))
+
+(defcustom caffeinate-block-display-sleep nil
+  "Whether `caffeinate-mode' should prevent the display from sleeping.
+
+When nil, `caffeinate-mode' only prevents system idle sleep and the
+display can still go to sleep.  Set to non-nil to also prevent the
+display from sleeping."
+  :group 'caffeinate
+  :type 'boolean
+  :set #'caffeinate--set-block-display-sleep)
 
 (defun caffeinate-set-timeout (duration)
   "Schedule caffeinate to turn itself off after DURATION.
@@ -113,9 +124,8 @@ response cancels the pending timeout."
   (interactive
    (list (read-string
           "Caffeinate timeout (e.g. 30 min, 2 hours, blank to cancel): ")))
-  (unless (or (bound-and-true-p caffeinate-mode)
-              (bound-and-true-p display-caffeinate-mode))
-    (user-error "Either caffeinate-mode or display-caffeinate-mode must be active to set a timeout"))
+  (unless caffeinate-mode
+    (user-error "Caffeinate-mode must be active to set a timeout"))
   (let ((secs (cond
                ((null duration) nil)
                ((numberp duration) duration)
@@ -138,19 +148,25 @@ response cancels the pending timeout."
                    (seconds-to-string secs 'expanded))
          "Caffeinate timeout disabled")))))
 
-(defun caffeinate-toggle-display ()
-  "Toggle between `caffeinate-mode' and `display-caffeinate-mode'."
-  (interactive)
-  (if (bound-and-true-p display-caffeinate-mode)
-      (caffeinate-mode 1)
-    (display-caffeinate-mode 1)))
+(defun caffeinate-toggle-display (&optional arg)
+  "Toggle whether `caffeinate-mode' blocks the display from sleeping.
 
-(defun caffeinate-turn-off ()
-  "Disable the active caffeinate mode."
-  (interactive)
-  (cond
-   ((bound-and-true-p display-caffeinate-mode) (display-caffeinate-mode -1))
-   ((bound-and-true-p caffeinate-mode) (caffeinate-mode -1))))
+Caffeinate mode must be active when the function is called.  The change
+is not persisted after the mode is disabled--if this is desired,
+customize the value of `caffeinate-block-display-sleep' instead.
+
+Optional numeric ARG, if supplied, turns on display sleep blocking when
+positive, turns it off when negative, and just toggles it when zero or
+left out."
+  (interactive "P")
+  (unless caffeinate-mode
+    (user-error "Caffeinate-mode not enabled"))
+  (setq caffeinate--block-display-sleep
+        (if (or (not arg)
+                (zerop (setq arg (prefix-numeric-value arg))))
+            (not caffeinate--block-display-sleep)
+          (> arg 0)))
+  (caffeinate--acquire))
 
 (defvar caffeinate-mode-map
   (let ((map (make-sparse-keymap)))
@@ -159,7 +175,7 @@ response cancels the pending timeout."
       '("Caffeinate"
         ["Keep display awake" caffeinate-toggle-display
          :style toggle
-         :selected (bound-and-true-p display-caffeinate-mode)
+         :selected caffeinate--block-display-sleep
          :help "Prevent the display from going to sleep"]
         "--"
         ("Timeout"
@@ -185,54 +201,29 @@ response cancels the pending timeout."
                          (not (memql caffeinate--timeout-seconds
                                      '(1800 3600 14400 28800 43200 86400))))])
         "--"
-        ["Turn off minor mode" caffeinate-turn-off]))
+        ["Turn off minor mode" (lambda () (interactive) (caffeinate-mode -1))]))
     map)
   "Keymap for caffeinate modes.")
-
-(defvar display-caffeinate-mode-map caffeinate-mode-map
-  "Keymap for `display-caffeinate-mode'; shared with `caffeinate-mode'.")
 
 ;;;###autoload
 (define-minor-mode caffeinate-mode
   "Prevent the system from going to sleep."
   :global t
-  :group 'caffeinate
-  :keymap caffeinate-mode-map
-  :lighter " Caffeinate"
+  :lighter (:eval (if caffeinate--block-display-sleep
+                      " Caffeinate[Display]"
+                    " Caffeinate"))
   (cond
    (caffeinate-mode
-    (when (bound-and-true-p display-caffeinate-mode)
-      (display-caffeinate-mode -1))
     (condition-case err
-        (caffeinate--acquire t)
+        (progn
+          (setq caffeinate--block-display-sleep caffeinate-block-display-sleep)
+          (caffeinate--acquire))
       (error
        (setq caffeinate-mode nil)
        (signal (car err) (cdr err)))))
    (t
     (caffeinate--release)
-    (unless (bound-and-true-p display-caffeinate-mode)
-      (caffeinate--cancel-timer)))))
-
-;;;###autoload
-(define-minor-mode display-caffeinate-mode
-  "Prevent the display from going to sleep."
-  :global t
-  :group 'caffeinate
-  :keymap display-caffeinate-mode-map
-  :lighter " Caffeinate[Display]"
-  (cond
-   (display-caffeinate-mode
-    (when (bound-and-true-p caffeinate-mode)
-      (caffeinate-mode -1))
-    (condition-case err
-        (caffeinate--acquire nil)
-      (error
-       (setq display-caffeinate-mode nil)
-       (signal (car err) (cdr err)))))
-   (t
-    (caffeinate--release)
-    (unless caffeinate-mode
-      (caffeinate--cancel-timer)))))
+    (caffeinate--cancel-timer))))
 
 (provide 'caffeinate)
 
