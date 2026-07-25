@@ -168,47 +168,51 @@ left out."
           (> arg 0)))
   (caffeinate--acquire))
 
+(defvar caffeinate-mode-menu-map
+  (easy-menu-create-menu
+   "Caffeinate"
+   '(["Keep display awake" caffeinate-toggle-display
+      :style toggle
+      :selected caffeinate--block-display-sleep
+      :help "Prevent the display from going to sleep"]
+     "--"
+     ("Timeout"
+      ["Off" (caffeinate-set-timeout nil)
+       :style radio :selected (null caffeinate--timeout-seconds)]
+      "--"
+      ["30 minutes" (caffeinate-set-timeout 1800)
+       :style radio :selected (eql caffeinate--timeout-seconds 1800)]
+      ["1 hour" (caffeinate-set-timeout 3600)
+       :style radio :selected (eql caffeinate--timeout-seconds 3600)]
+      ["4 hours" (caffeinate-set-timeout 14400)
+       :style radio :selected (eql caffeinate--timeout-seconds 14400)]
+      ["8 hours" (caffeinate-set-timeout 28800)
+       :style radio :selected (eql caffeinate--timeout-seconds 28800)]
+      ["12 hours" (caffeinate-set-timeout 43200)
+       :style radio :selected (eql caffeinate--timeout-seconds 43200)]
+      ["24 hours" (caffeinate-set-timeout 86400)
+       :style radio :selected (eql caffeinate--timeout-seconds 86400)]
+      "--"
+      ["Custom..." (call-interactively #'caffeinate-set-timeout)
+       :style radio
+       :selected (and caffeinate--timeout-seconds
+                      (not (memql caffeinate--timeout-seconds
+                                  '(1800 3600 14400 28800 43200 86400))))])
+     "--"
+     ["Turn off minor mode" (lambda () (interactive) (caffeinate-mode -1))]))
+  "Menu for the `caffeinate-mode' mode-line lighter")
+
 (defvar caffeinate-mode-map
   (let ((map (make-sparse-keymap)))
-    (easy-menu-define nil map
-      "Menu for caffeinate modes."
-      '("Caffeinate"
-        ["Keep display awake" caffeinate-toggle-display
-         :style toggle
-         :selected caffeinate--block-display-sleep
-         :help "Prevent the display from going to sleep"]
-        "--"
-        ("Timeout"
-         ["Off" (caffeinate-set-timeout nil)
-          :style radio :selected (null caffeinate--timeout-seconds)]
-         "--"
-         ["30 minutes" (caffeinate-set-timeout 1800)
-          :style radio :selected (eql caffeinate--timeout-seconds 1800)]
-         ["1 hour" (caffeinate-set-timeout 3600)
-          :style radio :selected (eql caffeinate--timeout-seconds 3600)]
-         ["4 hours" (caffeinate-set-timeout 14400)
-          :style radio :selected (eql caffeinate--timeout-seconds 14400)]
-         ["8 hours" (caffeinate-set-timeout 28800)
-          :style radio :selected (eql caffeinate--timeout-seconds 28800)]
-         ["12 hours" (caffeinate-set-timeout 43200)
-          :style radio :selected (eql caffeinate--timeout-seconds 43200)]
-         ["24 hours" (caffeinate-set-timeout 86400)
-          :style radio :selected (eql caffeinate--timeout-seconds 86400)]
-         "--"
-         ["Custom..." (call-interactively #'caffeinate-set-timeout)
-          :style radio
-          :selected (and caffeinate--timeout-seconds
-                         (not (memql caffeinate--timeout-seconds
-                                     '(1800 3600 14400 28800 43200 86400))))])
-        "--"
-        ["Turn off minor mode" (lambda () (interactive) (caffeinate-mode -1))]))
+    (define-key map [menu-bar caffeinate] caffeinate-mode-menu-map)
     map)
-  "Keymap for caffeinate modes.")
+  "Keymap for `caffeinate-mode'")
 
 ;;;###autoload
 (define-minor-mode caffeinate-mode
   "Prevent the system from going to sleep."
   :global t
+  :keymap caffeinate-mode-map
   :lighter (:eval (if caffeinate--block-display-sleep
                       " Caffeinate[Display]"
                     " Caffeinate"))
