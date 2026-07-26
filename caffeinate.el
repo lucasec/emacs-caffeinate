@@ -56,8 +56,8 @@
 (defvar caffeinate--token nil
   "Active `system-sleep' token held by caffeinate.")
 
-(defvar caffeinate--block-display-sleep nil
-  "Active sleep blocking mode of the current assertion held by caffeinate.")
+(defvar caffeinate--blocking-display-sleep nil
+  "Whether caffeinate is actively blocking display sleep.")
 
 (defvar caffeinate--timer nil
   "Active timeout timer object.")
@@ -70,7 +70,7 @@
   (caffeinate--release)
   (let ((token (system-sleep-block-sleep
                 "Emacs - caffeinate-mode"
-                (not caffeinate--block-display-sleep))))
+                (not caffeinate--blocking-display-sleep))))
     (unless token
       (error "Caffeinate: unable to acquire power assertion"))
     (setq caffeinate--token token)))
@@ -100,15 +100,18 @@ Sets the value of SYMBOL to VALUE and re-acquires the power assertion if
 `caffeinate-mode' is active."
   (custom-set-default symbol value)
   (when caffeinate-mode
-    (setq caffeinate--block-display-sleep value)
+    (setq caffeinate--blocking-display-sleep value)
     (caffeinate--acquire)))
 
 (defcustom caffeinate-block-display-sleep nil
   "Whether `caffeinate-mode' should prevent the display from sleeping.
 
-When nil, `caffeinate-mode' only prevents system idle sleep and the
-display can still go to sleep.  Set to non-nil to also prevent the
-display from sleeping."
+When non-nil, enabling `caffeinate-mode' prevents both the system and
+the display from going to sleep. If nil, only system sleep is prevented.
+
+This option controls the default when `caffeinate-mode' is enabled.  The
+behavior can also be temporarily changed by using
+`caffeinate-toggle-display'."
   :group 'caffeinate
   :type 'boolean
   :set #'caffeinate--set-block-display-sleep)
@@ -119,13 +122,15 @@ DURATION may be a number of seconds, a string parseable by
 `timer-duration' (e.g. \"30 min\", \"2 hours\"), or nil to disable any
 active timeout.
 
-When called interactively, prompt for a duration string; an empty
-response cancels the pending timeout."
+Also enables `caffeinate-mode' if it is not already active.
+
+When called interactively, prompt for a duration string. An empty
+duration cancels any pending timeout."
   (interactive
    (list (read-string
           "Caffeinate timeout (e.g. 30 min, 2 hours, blank to cancel): ")))
   (unless caffeinate-mode
-    (user-error "Caffeinate-mode must be active to set a timeout"))
+    (caffeinate-mode t))
   (let ((secs (cond
                ((null duration) nil)
                ((numberp duration) duration)
@@ -151,32 +156,38 @@ response cancels the pending timeout."
 (defun caffeinate-toggle-display (&optional arg)
   "Toggle whether `caffeinate-mode' blocks the display from sleeping.
 
-Caffeinate mode must be active when the function is called.  The change
-is not persisted after the mode is disabled--if this is desired,
-customize the value of `caffeinate-block-display-sleep' instead.
+Turning display sleep blocking on also enables `caffeinate-mode' when it
+is not already active.
 
 Optional numeric ARG, if supplied, turns on display sleep blocking when
 positive, turns it off when negative, and just toggles it when zero or
 left out."
   (interactive "P")
-  (unless caffeinate-mode
-    (user-error "Caffeinate-mode not enabled"))
-  (setq caffeinate--block-display-sleep
-        (if (or (not arg)
-                (zerop (setq arg (prefix-numeric-value arg))))
-            (not caffeinate--block-display-sleep)
-          (> arg 0)))
-  (caffeinate--acquire))
+  (let ((block-display (if (or (not arg)
+                               (zerop (setq arg (prefix-numeric-value arg))))
+                           (not caffeinate--blocking-display-sleep)
+                         (> arg 0))))
+    (cond
+     (caffeinate-mode
+      (setq caffeinate--blocking-display-sleep block-display)
+      (caffeinate--acquire))
+     (block-display
+      (let ((caffeinate-block-display-sleep t))
+        (caffeinate-mode 1))))))
 
 (defvar caffeinate-mode-menu-map
   (easy-menu-create-menu
-   "Caffeinate"
-   '(["Keep display awake" caffeinate-toggle-display
+   "System Sleep"
+   '(["Keep system awake" caffeinate-mode
       :style toggle
-      :selected caffeinate--block-display-sleep
+      :selected caffeinate-mode
+      :help "Prevent the system from going to sleep"]
+     ["Keep display awake" caffeinate-toggle-display
+      :style toggle
+      :selected caffeinate--blocking-display-sleep
       :help "Prevent the display from going to sleep"]
      "--"
-     ("Timeout"
+     ("Disable after"
       ["Off" (caffeinate-set-timeout nil)
        :style radio :selected (null caffeinate--timeout-seconds)]
       "--"
@@ -197,10 +208,8 @@ left out."
        :style radio
        :selected (and caffeinate--timeout-seconds
                       (not (memql caffeinate--timeout-seconds
-                                  '(1800 3600 14400 28800 43200 86400))))])
-     "--"
-     ["Turn off minor mode" (lambda () (interactive) (caffeinate-mode -1))]))
-  "Menu for the `caffeinate-mode' mode-line lighter")
+                                  '(1800 3600 14400 28800 43200 86400))))])))
+  "Menu shared by the Tools menu and the mode-line lighter.")
 
 (defvar caffeinate-mode-map
   (let ((map (make-sparse-keymap)))
@@ -210,24 +219,32 @@ left out."
 
 ;;;###autoload
 (define-minor-mode caffeinate-mode
-  "Prevent the system from going to sleep."
+  "Prevent the system from going to sleep.
+
+By default, only prevents system idle sleep.  If
+`caffeinate-block-display-sleep' is non-nil, also prevent the display
+from sleeping."
   :global t
   :keymap caffeinate-mode-map
-  :lighter (:eval (if caffeinate--block-display-sleep
+  :lighter (:eval (if caffeinate--blocking-display-sleep
                       " Caffeinate[Display]"
                     " Caffeinate"))
   (cond
    (caffeinate-mode
     (condition-case err
         (progn
-          (setq caffeinate--block-display-sleep caffeinate-block-display-sleep)
+          (setq caffeinate--blocking-display-sleep caffeinate-block-display-sleep)
           (caffeinate--acquire))
       (error
        (setq caffeinate-mode nil)
        (signal (car err) (cdr err)))))
    (t
     (caffeinate--release)
-    (caffeinate--cancel-timer))))
+    (caffeinate--cancel-timer)
+    (setq caffeinate--blocking-display-sleep nil))))
+
+(when (lookup-key global-map [menu-bar tools])
+  (easy-menu-add-item nil '("Tools") caffeinate-mode-menu-map "Games"))
 
 (provide 'caffeinate)
 
