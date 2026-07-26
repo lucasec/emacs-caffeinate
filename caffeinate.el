@@ -177,7 +177,7 @@ left out."
 
 (defvar caffeinate-mode-menu-map
   (easy-menu-create-menu
-   "System Sleep"
+   "Sleep (Caffeinate)"
    '(["Keep system awake" caffeinate-mode
       :style toggle
       :selected caffeinate-mode
